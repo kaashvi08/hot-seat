@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Echo Her — Pitch practice",
+  title: "Hot Seat — Pitch practice",
   description: "A space for entrepreneurial women to practice their pitch, find their voice, and meet the moment.",
   other: {
     "codex-preview": "development",
