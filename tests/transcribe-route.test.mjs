@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import ts from 'typescript';
+const source=readFileSync(new URL('../app/api/transcribe/route.ts',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace('export async function POST','async function POST');
+const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText.replace(/export \{\};?/g,'');
+function handler({signedIn=true,key='test-secret',upstream}={}){return new Function('env','getChatGPTUser','fetch',js+'\nreturn POST;')({OPENAI_API_KEY:key},async()=>signedIn?{userId:'test'}:null,upstream)}
+function request(blob=new Blob(['test audio'],{type:'audio/webm'}),name='answer.webm',origin='https://app.test'){const data=new FormData();data.append('file',blob,name);return new Request('https://app.test/api/transcribe',{method:'POST',headers:{Origin:origin},body:data})}
+test('forwards the recorded bytes in multipart format and returns a transcript',async()=>{let calls=0;const post=handler({upstream:async(url,options)=>{calls++;assert.equal(url,'https://api.openai.com/v1/audio/transcriptions');assert.equal(options.headers.Authorization,'Bearer test-secret');assert.equal(options.body.get('model'),'gpt-4o-mini-transcribe');assert.equal(await options.body.get('file').text(),'test audio');return Response.json({text:'We help cafes reduce waste.'})}});const r=await post(request());assert.equal(r.status,200);assert.deepEqual(await r.json(),{text:'We help cafes reduce waste.'});assert.equal(calls,1)});
+test('requires identity and same-origin requests before sending audio',async()=>{let calls=0;const upstream=async()=>{calls++;return Response.json({text:'unexpected'})};assert.equal((await handler({signedIn:false,upstream})(request())).status,401);assert.equal((await handler({upstream})(request(undefined,undefined,'https://other.test'))).status,403);assert.equal(calls,0)});
+test('rejects empty audio and unsupported file formats',async()=>{const post=handler();assert.equal((await post(request(new Blob([])))).status,400);assert.equal((await post(request(undefined,'answer.exe'))).status,400)});
+test('reports unavailable transcription without losing the user recording',async()=>{const post=handler({upstream:async()=>new Response('',{status:429})});const r=await post(request());assert.equal(r.status,502);assert.match((await r.json()).error,/saved for retry/)});
